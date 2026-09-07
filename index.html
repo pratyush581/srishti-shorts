@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="./manifest.json">
+<title>Srishti Shorts</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;background:#000;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display",sans-serif;overflow:hidden}
+#feed{height:100%;height:100dvh;overflow-y:auto;scroll-snap-type:y mandatory;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch}
+.card{height:100%;height:100dvh;scroll-snap-align:start;position:relative;background:#000;display:flex;align-items:center;justify-content:center}
+video{width:100%;height:100%;object-fit:contain;background:#000}
+.empty{padding:35px;text-align:center;font-size:18px}.empty b{display:block;font-size:28px;margin-bottom:12px}
+#top{position:fixed;z-index:5;top:max(16px,env(safe-area-inset-top));left:16px;right:16px;display:flex;justify-content:space-between;pointer-events:none}
+.pill,button{border:0;color:#fff;background:rgba(20,20,20,.68);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-radius:22px;padding:10px 14px;font-size:14px}
+button{pointer-events:auto}.danger{background:rgba(150,30,30,.8)}
+#controls{position:fixed;z-index:5;right:14px;bottom:max(18px,env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:10px}
+.big{width:52px;height:52px;border-radius:26px;padding:0;font-size:22px}
+#drawer{position:fixed;z-index:10;inset:0;background:rgba(0,0,0,.62);display:none;align-items:flex-end}
+#panel{width:100%;max-height:82%;background:#171717;border-radius:22px 22px 0 0;padding:18px 18px max(22px,env(safe-area-inset-bottom));overflow:auto}
+h2{margin:0 0 14px}.row{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0}.row button{flex:1;min-width:130px}
+label.file{display:block;text-align:center;background:#fff;color:#111;padding:14px;border-radius:14px;font-weight:700;margin:12px 0}
+input[type=file]{display:none}.item{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid #333}.muted{color:#aaa;font-size:13px}
+#toast{position:fixed;z-index:20;left:50%;bottom:90px;transform:translateX(-50%);background:rgba(30,30,30,.9);padding:10px 15px;border-radius:18px;display:none;font-size:14px;white-space:nowrap}
+</style>
+</head>
+<body>
+<div id="feed"></div>
+<div id="top"><div class="pill" id="counter">0 videos</div><button id="manage">⚙️ Manage</button></div>
+<div id="controls">
+<button class="big" id="play">▶︎</button>
+<button class="big" id="sound">🔇</button>
+<button class="big" id="fav">♡</button>
+<button class="big" id="shuffle">🔀</button>
+</div>
+<div id="drawer"><div id="panel">
+<h2>🎬 Srishti Shorts</h2>
+<div class="muted">Everything stays on this iPhone. Videos are not uploaded to GitHub.</div>
+<label class="file">＋ Add videos<input id="picker" type="file" accept="video/*" multiple></label>
+<div class="row">
+<button id="close">Done</button><button id="loop">🔁 Loop: On</button>
+</div>
+<div class="row">
+<button id="allFav">❤️ Favorites only: Off</button>
+<button class="danger" id="deleteAll">Delete all videos</button>
+</div>
+<div id="list"></div>
+<div class="muted" style="margin-top:12px">Tip: For a child, iPhone Guided Access can prevent accidental exits.</div>
+</div></div>
+<div id="toast"></div>
+<script>
+const DB='srishti-shorts-v2', STORE='videos';
+let db, items=[], urls=[], current=0, muted=true, playing=true, loop=true, favOnly=false, shuffle=false;
+const feed=document.querySelector('#feed'), counter=document.querySelector('#counter');
+function toast(t){let e=document.querySelector('#toast');e.textContent=t;e.style.display='block';clearTimeout(window.tt);window.tt=setTimeout(()=>e.style.display='none',1800)}
+function openDB(){return new Promise((res,rej)=>{let r=indexedDB.open(DB,1);r.onupgradeneeded=()=>{db=r.result;if(!db.objectStoreNames.contains(STORE))db.createObjectStore(STORE,{keyPath:'id'})};r.onsuccess=()=>{db=r.result;res()};r.onerror=()=>rej(r.error)})}
+function tx(mode){return db.transaction(STORE,mode).objectStore(STORE)}
+function getAll(){return new Promise((res,rej)=>{let r=tx('readonly').getAll();r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)})}
+function put(x){return new Promise((res,rej)=>{let r=tx('readwrite').put(x);r.onsuccess=()=>res();r.onerror=()=>rej(r.error)})}
+function del(id){return new Promise((res,rej)=>{let r=tx('readwrite').delete(id);r.onsuccess=()=>res();r.onerror=()=>rej(r.error)})}
+function clearDB(){return new Promise((res,rej)=>{let r=tx('readwrite').clear();r.onsuccess=()=>res();r.onerror=()=>rej(r.error)})}
+async function load(){items=await getAll();items.sort((a,b)=>a.order-b.order);render();renderList()}
+function visibleItems(){return favOnly?items.filter(x=>x.favorite):items}
+function render(){
+urls.forEach(u=>URL.revokeObjectURL(u));urls=[];
+feed.innerHTML='';
+let arr=visibleItems();
+counter.textContent=`${arr.length} video${arr.length===1?'':'s'}`;
+if(!arr.length){feed.innerHTML='<div class="card"><div class="empty"><b>🎬 Srishti Shorts</b>Add some videos to start.<br><span class="muted">Then swipe up/down like Shorts.</span></div></div>';return}
+arr.forEach((x,i)=>{let c=document.createElement('div');c.className='card';let v=document.createElement('video');let u=URL.createObjectURL(x.blob);urls.push(u);v.src=u;v.playsInline=true;v.preload='metadata';v.muted=muted;v.loop=loop;v.dataset.id=x.id;c.appendChild(v);feed.appendChild(c);v.addEventListener('click',()=>togglePlay(v));v.addEventListener('ended',()=>{if(!loop)next()});});
+observe();
+setTimeout(()=>scrollToIndex(Math.min(current,arr.length-1)),0);
+}
+function observe(){let obs=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting&&e.intersectionRatio>.7){current=[...feed.children].indexOf(e.target);playCurrent()}}),{threshold:[.7]});[...feed.children].forEach(c=>obs.observe(c))}
+function currentVideo(){return feed.children[current]?.querySelector('video')}
+function playCurrent(){let v=currentVideo();[...feed.querySelectorAll('video')].forEach(x=>{if(x!==v)x.pause()});if(v){v.muted=muted;v.loop=loop;if(playing)v.play().catch(()=>{})}updateButtons()}
+function scrollToIndex(i){current=i;feed.children[i]?.scrollIntoView({behavior:'smooth'});playCurrent()}
+function next(){let n=feed.children.length;if(!n)return;let i=shuffle?Math.floor(Math.random()*n):(current+1)%n;scrollToIndex(i)}
+function prev(){let n=feed.children.length;if(!n)return;scrollToIndex((current-1+n)%n)}
+function togglePlay(v=currentVideo()){if(!v)return; if(v.paused){playing=true;v.play().catch(()=>{})}else{playing=false;v.pause()}updateButtons()}
+function updateButtons(){let v=currentVideo();document.querySelector('#play').textContent=v&&!v.paused?'⏸':'▶︎';document.querySelector('#sound').textContent=muted?'🔇':'🔊';document.querySelector('#fav').textContent=(visibleItems()[current]?.favorite)?'♥':'♡'}
+feed.addEventListener('scrollend',()=>{let v=currentVideo();if(v)playCurrent()});
+let touchY=0;
+feed.addEventListener('touchstart',e=>touchY=e.touches[0].clientY,{passive:true});
+feed.addEventListener('touchend',e=>{let dy=e.changedTouches[0].clientY-touchY;if(Math.abs(dy)>70){dy<0?next():prev()}},{passive:true});
+document.querySelector('#play').onclick=()=>togglePlay();
+document.querySelector('#sound').onclick=()=>{muted=!muted;let v=currentVideo();if(v){v.muted=muted;v.play().catch(()=>{})}updateButtons()};
+document.querySelector('#fav').onclick=async()=>{let x=visibleItems()[current];if(!x)return;x.favorite=!x.favorite;await put(x);render();toast(x.favorite?'Added to favorites':'Removed from favorites')};
+document.querySelector('#shuffle').onclick=()=>{shuffle=!shuffle;toast(shuffle?'Shuffle on':'Shuffle off')};
+document.querySelector('#manage').onclick=()=>document.querySelector('#drawer').style.display='flex';
+document.querySelector('#close').onclick=()=>document.querySelector('#drawer').style.display='none';
+document.querySelector('#loop').onclick=()=>{loop=!loop;document.querySelector('#loop').textContent='🔁 Loop: '+(loop?'On':'Off');playCurrent()};
+document.querySelector('#allFav').onclick=()=>{favOnly=!favOnly;document.querySelector('#allFav').textContent='❤️ Favorites only: '+(favOnly?'On':'Off');current=0;render()};
+document.querySelector('#picker').onchange=async e=>{let files=[...e.target.files];let start=items.length;for(let i=0;i<files.length;i++)await put({id:crypto.randomUUID(),name:files[i].name,blob:files[i],order:start+i,favorite:false});e.target.value='';await load();toast(files.length+' video'+(files.length===1?'':'s')+' added')};
+document.querySelector('#deleteAll').onclick=async()=>{if(confirm('Delete all saved videos from this iPhone?')){await clearDB();items=[];render();renderList();toast('All videos deleted')}};
+function renderList(){let l=document.querySelector('#list');l.innerHTML='';items.forEach(x=>{let d=document.createElement('div');d.className='item';d.innerHTML='<span>'+esc(x.favorite?'♥ ':'')+esc(x.name)+'</span><button class="danger">Delete</button>';d.querySelector('button').onclick=async()=>{await del(x.id);await load();toast('Deleted')};l.appendChild(d)})}
+function esc(s){return s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+(async()=>{await openDB();await load();updateButtons()})();
+</script>
+<script>if('serviceWorker' in navigator){navigator.serviceWorker.register('./sw.js').catch(()=>{})}</script></body></html>
